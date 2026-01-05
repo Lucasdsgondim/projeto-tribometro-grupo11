@@ -72,7 +72,7 @@ int LBC = 1;
 int LBT = 1;
 
 const float RAMP_RATE_DEG_PER_S = 0.30f;
-const float MAX_ANGLE_DEG       = 40.0f;
+const float MAX_ANGLE_DEG       = 45.0f;
 const float ANGLE_TOL_DEG       = 0.25f;
 
 const int  SLIP_THRESHOLD_MM   = 20;
