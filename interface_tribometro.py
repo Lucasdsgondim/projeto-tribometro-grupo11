@@ -16,6 +16,9 @@ TEMP_OUTPUT_PATH = os.path.join(tempfile.gettempdir(), FILENAME)
 LOG_PATH = os.path.join(SCRIPT_DIR, "interface_tribometro.log")
 MAX_ALT_FILES = 5
 ACTIVE_FILENAME = None
+CURRENT_HEADER = None
+CALIB_PITCH_STD_MAX = 0.5
+CALIB_DIST_STD_MAX = 20.0
 # =================================================
 
 def list_serial_ports():
@@ -113,8 +116,9 @@ def read_from_serial(ser, stop_event):
                     print("> ", end="", flush=True) # Restaura o prompt
                     
                     # Verifica se parece ser uma linha de dados (tem muitos pontos e vírgula)
-                    if line.count(';') > 5: 
+                    if line.count(';') > 5:
                         save_to_csv(line)
+                        warn_quality_flags(line)
                     
                     buffer = ""
                 else:
@@ -124,6 +128,66 @@ def read_from_serial(ser, stop_event):
             stop_event.set()
             break
         time.sleep(0.01)
+
+def warn_quality_flags(line):
+    global CURRENT_HEADER
+    lower = line.lower()
+    if "massa_g" in lower and "lbc" in lower:
+        CURRENT_HEADER = [c.strip() for c in line.split(';')]
+        return
+    if CURRENT_HEADER is None:
+        if "nan" in lower:
+            print("[AVISO] Resultado contém NaN (medida inválida).")
+        return
+    cols = [c.strip() for c in line.split(';')]
+    if len(cols) != len(CURRENT_HEADER) and len(cols) + 1 != len(CURRENT_HEADER):
+        return
+    idx = {name: i for i, name in enumerate(CURRENT_HEADER)}
+    def get(name, default=None):
+        i = idx.get(name)
+        if i is None or i >= len(cols):
+            return default
+        return cols[i]
+    mpu_ok = get("mpu_ok")
+    mpu_ok_slip = get("mpu_ok_slip")
+    sonar_ok = get("sonar_ok")
+    sonar_stale = get("sonar_stale_ms")
+    if mpu_ok == "0":
+        print("[AVISO] MPU inválido nesta amostra (mpu_ok=0).")
+    if mpu_ok_slip == "0":
+        print("[AVISO] Escorregamento detectado sem MPU válido (mpu_ok_slip=0).")
+    if sonar_ok == "0":
+        print("[AVISO] Sonar inválido nesta amostra (sonar_ok=0).")
+    try:
+        if sonar_stale is not None and int(float(sonar_stale)) > 0:
+            print(f"[AVISO] Sonar stale: {sonar_stale} ms.")
+    except ValueError:
+        pass
+    if "nan" in lower:
+        print("[AVISO] Resultado contém NaN (medida inválida).")
+    sonar_filt = get("sonar_filt_mm")
+    dist0 = get("dist0_mm")
+    tempo_s = get("tempo_s")
+    s_ok = get("s_ok")
+    calib_pitch_std = get("calib_pitch_std_deg")
+    calib_dist_std = get("calib_dist_std_mm")
+    try:
+        if sonar_filt is not None and dist0 is not None:
+            delta = abs(float(sonar_filt) - float(dist0))
+            t = float(tempo_s) if tempo_s is not None else None
+            if delta > 50 and (t is None or t < 0.2):
+                print(f"[AVISO] Divergência grande: sonar_filt_mm={sonar_filt} vs dist0_mm={dist0}.")
+    except ValueError:
+        pass
+    if s_ok == "0":
+        print("[AVISO] Percurso fora da tolerância (s_ok=0).")
+    try:
+        if calib_pitch_std is not None and float(calib_pitch_std) > CALIB_PITCH_STD_MAX:
+            print(f"[AVISO] Calibração MPU instável (std={calib_pitch_std} deg).")
+        if calib_dist_std is not None and float(calib_dist_std) > CALIB_DIST_STD_MAX:
+            print(f"[AVISO] Calibração Sonar instável (std={calib_dist_std} mm).")
+    except ValueError:
+        pass
 
 def main():
     print("=== Interface de Controle Tribometro ===")

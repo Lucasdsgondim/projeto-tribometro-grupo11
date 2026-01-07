@@ -17,13 +17,33 @@ const float G = 9.80665f;
 const unsigned long SENSOR_PERIOD_MS = 50;
 float filterAlpha = 0.90f;
 
+// Globals defined in other .ino files (declared here due to Arduino concat order).
+extern bool sonarOk;
+extern bool sonarStale;
+extern unsigned long sonarAgeMs;
+extern long distNowMm;
+extern long distInitialMm;
+extern long distFinalMm;
+
+float readMPUPitchDegSigned();
+void updateSonarFiltered();
+void updateMotorNonBlocking();
+void readSerialLine();
+bool calibrateSensors();
+long displacementMmAbs(long d0, long dNow);
+void finishAndPrintResults();
+void printConfig();
+
 const unsigned int STEP_DELAY_LEVELING_US = 900;
 const unsigned int STEP_DELAY_FINE_US = 15000;
 // Velocidades dinamicas para o ensaio:
 const unsigned int STEP_DELAY_MIN_US = 2000; // Rapido (inicio)
 const unsigned int STEP_DELAY_MAX_US = 8000; // Lento (final/inclinado)
+const unsigned int STEP_DELAY_SMOOTH_US_PER_MS = 15;
 
 unsigned int stepDelayMicros = STEP_DELAY_MIN_US;
+unsigned int targetStepDelayMicros = STEP_DELAY_MIN_US;
+unsigned long lastDelayUpdateMs = 0;
 const bool KEEP_HOLDING_TORQUE = false;
 
 // Calcula delay baseado no ângulo atual para suavizar a subida em altas inclinações
@@ -33,6 +53,17 @@ unsigned int calcStepDelayForAngle(float ang) {
   // Interpolacao linear entre 10 e 40 graus
   float factor = (ang - 10.0f) / 30.0f; // 0.0 a 1.0
   return STEP_DELAY_MIN_US + (unsigned int)(factor * (STEP_DELAY_MAX_US - STEP_DELAY_MIN_US));
+}
+
+void updateStepDelaySmooth(unsigned long nowMs) {
+  unsigned long dt = nowMs - lastDelayUpdateMs;
+  if (dt == 0) return;
+  lastDelayUpdateMs = nowMs;
+  long delta = (long)targetStepDelayMicros - (long)stepDelayMicros;
+  long maxDelta = (long)STEP_DELAY_SMOOTH_US_PER_MS * (long)dt;
+  if (delta > maxDelta) delta = maxDelta;
+  else if (delta < -maxDelta) delta = -maxDelta;
+  stepDelayMicros = (unsigned int)((long)stepDelayMicros + delta);
 }
 
 byte stepIndex = 0;
@@ -76,8 +107,18 @@ const float MAX_ANGLE_DEG       = 45.0f;
 const float ANGLE_TOL_DEG       = 0.25f;
 
 const int  SLIP_THRESHOLD_MM   = 20;
-const byte SLIP_COUNT_REQUIRED = 4;
+const int  SLIP_VEL_THRESHOLD_MM_S = 40;
+const int  SLIP_MIN_STEP_MM = 3;
+const float SLIP_MIN_ANGLE_DEG = 2.0f;
+const int  START_REF_MAX_DELTA_MM = 50;
+const float TARGET_OFFSET_MM = 10.0f;
+const float CALIB_PITCH_STD_MAX = 0.5f;
+const float CALIB_DIST_STD_MAX = 20.0f;
+const byte CALIB_MAX_RETRIES = 3;
+const byte SLIP_COUNT_REQUIRED = 2;
 const unsigned long MOTION_TIMEOUT_MS = 10000;
+const unsigned long MIN_MOTION_SAMPLES = 6;
+const float STABLE_END_FRACTION = 0.7f;
 
 const float LEVEL_TOL_DEG = 0.05f;
 const float LEVEL_TARGET_DEG = 0.0f;
@@ -95,16 +136,41 @@ float levelRefDeg  = 0.0f;
 float levelOffsetDeg = 0.0f;
 float pitchZeroDeg = 0.0f;
 float thetaDeg     = 0.0f;
+float mpuTempC = 0.0f;
+int16_t mpuRawX = 0;
+int16_t mpuRawY = 0;
+int16_t mpuRawZ = 0;
+int16_t mpuRawTemp = 0;
+
+float calibPitchStdDeg = 0.0f;
+float calibDistStdMm = 0.0f;
+int calibPitchSamples = 0;
+int calibDistSamples = 0;
 
 long dist0mm = 0;
 long distSlip0mm = 0;
 long motionStartSmm = 0;
 long lastTrackedDistMm = -1;
 byte stableCount = 0;
+long lastSlipSmm = 0;
+unsigned long lastSlipCheckMs = 0;
+byte slipVelCounter = 0;
+bool slipArmed = false;
+
+bool isSonarFresh() {
+  return sonarOk && !sonarStale;
+}
 
 long displacementRefMm() {
   if (distInitialMm >= 0 && distFinalMm >= 0) return distInitialMm;
   return distSlip0mm;
+}
+
+long displacementMmToward(long dRef, long dNow) {
+  if (dRef < 0 || dNow < 0) return 0;
+  long delta = dRef - dNow; // positive when approaching the sonar
+  if (delta < 0) delta = 0;
+  return delta;
 }
 
 byte slipCounter = 0;
@@ -114,6 +180,7 @@ unsigned long levelStartMs = 0;
 unsigned long rampStartMs  = 0;
 unsigned long motionStartMs = 0;
 unsigned long motionEndMs = 0;
+long distEndMm = -1;
 
 float thetaSlipDeg = 0.0f;
 float thetaDynDeg  = 0.0f;
@@ -131,6 +198,7 @@ double sum_t2s = 0.0;
 double sum_t4  = 0.0;
 unsigned long motionSamples = 0;
 bool mpuOk = true;
+bool mpuOkAtSlip = true;
 float lastMpuPitchDeg = 0.0f;
 
 char lineBuf[32];
@@ -150,6 +218,8 @@ void setup() {
   pitchFiltDeg = readMPUPitchDegSigned();
   levelRefDeg = LEVEL_TARGET_DEG + levelOffsetDeg;
   pitchZeroDeg = pitchFiltDeg;
+  targetStepDelayMicros = stepDelayMicros;
+  lastDelayUpdateMs = millis();
 
   Serial.println(F("Tribometro pronto."));
   printConfig();
@@ -168,6 +238,12 @@ void loop() {
   pitchFiltDeg = filterAlpha * pitchFiltDeg + (1.0f - filterAlpha) * pitchRawDeg;
   thetaDeg = fabsf(pitchFiltDeg - pitchZeroDeg);
   updateSonarFiltered();
+  if (state == RAMPING_TO_SLIP || state == TRACKING_MOTION) {
+    updateStepDelaySmooth(nowMs);
+  } else {
+    stepDelayMicros = targetStepDelayMicros;
+    lastDelayUpdateMs = nowMs;
+  }
 
 
   switch (state) {
@@ -198,9 +274,9 @@ void loop() {
       } else {
         // Logica de duas velocidades
         if (absErr > 2.0f) {
-          stepDelayMicros = STEP_DELAY_LEVELING_US; // Rapido
+          targetStepDelayMicros = STEP_DELAY_LEVELING_US; // Rapido
         } else {
-          stepDelayMicros = STEP_DELAY_FINE_US;     // Lento/Preciso
+          targetStepDelayMicros = STEP_DELAY_FINE_US;     // Lento/Preciso
         }
         
         motorDirUp = (err >= 0.0f);
@@ -211,48 +287,102 @@ void loop() {
     case CALIBRATING:
       motorEnable = false;
       Serial.println(F("Calibrando..."));
-      if (calibrateSensors()) {
+      {
+        bool ok = false;
+        for (byte i = 0; i < CALIB_MAX_RETRIES; i++) {
+          if (!calibrateSensors()) continue;
+          Serial.print(F("Calibracao: pitch_std=")); Serial.print(calibPitchStdDeg, 3);
+          Serial.print(F(" deg, dist_std=")); Serial.print(calibDistStdMm, 1);
+          Serial.print(F(" mm (tentativa ")); Serial.print(i + 1); Serial.println(F(")"));
+          if (calibPitchStdDeg <= CALIB_PITCH_STD_MAX && calibDistStdMm <= CALIB_DIST_STD_MAX) {
+            ok = true;
+            break;
+          }
+          Serial.print(F("Calibracao instavel. Tentando novamente (")); Serial.print(i + 1); Serial.println(F(")..."));
+        }
+        if (!ok) {
+          Serial.println(F("Erro: Calibracao instavel. Reposicione e tente novamente."));
+          state = IDLE;
+          break;
+        }
         rampStartMs = millis();
         slipCounter = 0;
+        slipVelCounter = 0;
+        lastSlipSmm = 0;
+        lastSlipCheckMs = millis();
+        slipArmed = false;
+        mpuOkAtSlip = mpuOk;
         sonarInvalidCount = 0;
         state = RAMPING_TO_SLIP;
         Serial.println(F("Iniciando rampa..."));
-      } else {
-        Serial.println(F("Erro Sonar."));
-        state = IDLE;
       }
       break;
 
     case RAMPING_TO_SLIP: {
       // Ajusta velocidade dinamicamente conforme a inclinacao aumenta
-      stepDelayMicros = calcStepDelayForAngle(thetaDeg);
+      targetStepDelayMicros = calcStepDelayForAngle(thetaDeg);
       
       motorDirUp = true;
       motorEnable = true;
 
-      if (distNowMm >= 0) {
-        long s_mm = displacementMmAbs(dist0mm, distNowMm);
-        if (s_mm >= SLIP_THRESHOLD_MM) slipCounter++;
+      if (isSonarFresh()) {
+        long refMm = displacementRefMm();
+        long s_mm = displacementMmToward(refMm, distNowMm);
+        if ((refMm - distNowMm) > START_REF_MAX_DELTA_MM && slipCounter == 0 && slipVelCounter == 0) {
+          motorEnable = false;
+          Serial.println(F("Erro: dist0 divergente. Refaça calibracao/posicionamento."));
+          state = IDLE;
+          break;
+        }
+        if (!slipArmed) {
+          lastSlipSmm = s_mm;
+          lastSlipCheckMs = millis();
+          slipCounter = 0;
+          slipVelCounter = 0;
+          slipArmed = true;
+          break;
+        }
+        if (s_mm >= SLIP_THRESHOLD_MM && thetaDeg >= SLIP_MIN_ANGLE_DEG) slipCounter++;
         else slipCounter = 0;
 
-        if (slipCounter >= SLIP_COUNT_REQUIRED) {
-          thetaSlipDeg = thetaDeg;
-          mu_s = tanf(thetaSlipDeg * PI / 180.0f);
-          thetaDynDeg = thetaDeg;
-          motorEnable = false;
-          motionStartMs = millis();
-          sum_t2s = 0.0;
-          sum_t4  = 0.0;
-          motionSamples = 0;
-          motionStartSmm = displacementMmAbs(displacementRefMm(), distNowMm);
-          distSlip0mm = distNowMm;
-          
-          lastTrackedDistMm = distNowMm;
-          stableCount = 0;
-          
-          state = TRACKING_MOTION;
-          Serial.println(F("Movimento detectado."));
+        unsigned long nowMs = millis();
+        unsigned long dt = nowMs - lastSlipCheckMs;
+        if (dt > 0) {
+          long ds = s_mm - lastSlipSmm;
+          if (ds >= SLIP_MIN_STEP_MM) {
+            long vel = (ds * 1000L) / (long)dt;
+            if (vel >= SLIP_VEL_THRESHOLD_MM_S) slipVelCounter++;
+            else slipVelCounter = 0;
+          } else if (ds <= -SLIP_MIN_STEP_MM) {
+            slipVelCounter = 0;
+          }
+          lastSlipSmm = s_mm;
+          lastSlipCheckMs = nowMs;
         }
+      } else {
+        slipCounter = 0;
+        slipVelCounter = 0;
+      }
+
+      if (slipCounter >= SLIP_COUNT_REQUIRED && slipVelCounter >= 2) {
+        thetaSlipDeg = thetaDeg;
+        mu_s = tanf(thetaSlipDeg * PI / 180.0f);
+        thetaDynDeg = thetaDeg;
+        mpuOkAtSlip = mpuOk;
+        motorEnable = false;
+          motionStartMs = millis();
+          distEndMm = -1;
+        sum_t2s = 0.0;
+        sum_t4  = 0.0;
+        motionSamples = 0;
+        motionStartSmm = displacementMmToward(displacementRefMm(), distNowMm);
+        distSlip0mm = distNowMm;
+        
+        lastTrackedDistMm = distNowMm;
+        stableCount = 0;
+        
+        state = TRACKING_MOTION;
+        Serial.println(F("Movimento detectado."));
       }
 
       if (thetaDeg >= (MAX_ANGLE_DEG - 0.1f)) {
@@ -260,7 +390,9 @@ void loop() {
         thetaSlipDeg = thetaDeg;
         mu_s = tanf(thetaSlipDeg * PI / 180.0f);
         thetaDynDeg = thetaDeg;
+        mpuOkAtSlip = mpuOk;
         motionStartMs = millis();
+        distEndMm = -1;
         motionEndMs = motionStartMs;
         Serial.println(F("Ângulo máximo atingido (sem movimento)."));
         finishAndPrintResults();
@@ -269,10 +401,11 @@ void loop() {
     } break;
 
     case TRACKING_MOTION: {
-      if (distNowMm < 0) {
+      if (!isSonarFresh()) {
         sonarInvalidCount++;
         if (sonarInvalidCount > 20) {
           motionEndMs = millis();
+          distEndMm = distNowMm;
           Serial.println(F("Erro: Perda de sinal do Sonar."));
           finishAndPrintResults();
           state = DONE;
@@ -281,18 +414,19 @@ void loop() {
       }
       sonarInvalidCount = 0;
 
-      if (labs(distNowMm - lastTrackedDistMm) <= 2) {
-        stableCount++;
-      } else {
+      bool movingSample = (labs(distNowMm - lastTrackedDistMm) > 2);
+      if (movingSample) {
         stableCount = 0;
         lastTrackedDistMm = distNowMm;
+      } else {
+        stableCount++;
       }
 
-      long s_mm = displacementMmAbs(displacementRefMm(), distNowMm);
+      long s_mm = displacementMmToward(displacementRefMm(), distNowMm);
       long s_rel_mm = s_mm - motionStartSmm;
       if (s_rel_mm < 0) s_rel_mm = 0;
       float t = (millis() - motionStartMs) / 1000.0f;
-      if (t > 0.0f) {
+      if (t > 0.0f && movingSample) {
         double s_m = (double)s_rel_mm / 1000.0;
         double t2 = (double)t * (double)t;
         sum_t2s += t2 * s_m;
@@ -300,8 +434,11 @@ void loop() {
         motionSamples++;
       }
 
-      if (s_rel_mm >= (long)d_target_mm) {
+      bool useAbsTarget = (distInitialMm >= 0 && distFinalMm >= 0);
+      long s_check_mm = useAbsTarget ? s_mm : s_rel_mm;
+      if (s_check_mm >= (long)d_target_mm) {
         motionEndMs = millis();
+        distEndMm = distNowMm;
         Serial.println(F("Fim de curso atingido."));
         finishAndPrintResults();
         state = DONE;
@@ -309,7 +446,11 @@ void loop() {
       }
       
       if (stableCount > 20) {
+        if (d_target_mm > 0.0f && s_rel_mm < (long)(d_target_mm * STABLE_END_FRACTION)) {
+          break;
+        }
         motionEndMs = millis() - (stableCount * SENSOR_PERIOD_MS);
+        distEndMm = distNowMm;
         Serial.println(F("Movimento encerrado (estável)."));
         finishAndPrintResults();
         state = DONE;
@@ -318,6 +459,7 @@ void loop() {
 
       if (millis() - motionStartMs > MOTION_TIMEOUT_MS) {
         motionEndMs = millis();
+        distEndMm = distNowMm;
         Serial.println(F("Timeout do movimento."));
         finishAndPrintResults();
         state = DONE;

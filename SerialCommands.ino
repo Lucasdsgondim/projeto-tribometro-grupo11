@@ -1,3 +1,10 @@
+// Globals defined in other .ino files (declared here due to Arduino concat order).
+extern bool sonarOk;
+extern bool sonarStale;
+extern const float TARGET_OFFSET_MM;
+
+long readSonarMmFresh();
+
 void printHelp() { Serial.println(F("\nComandos: h r z s x p u <ms> j <ms> ip fp | m <g> lbc <val> lbt <val>")); }
 
 void printConfig() {
@@ -26,28 +33,28 @@ void handleCommand(char *cmd) {
   if (c == 'r') { printConfig(); return; }
 
   if (cmd[0] == 'i' && cmd[1] == 'p') {
-    updateSonarFiltered();
-    long d = (distNowMm >= 0) ? distNowMm : lastValidDistMm;
+    long d = readSonarMmFresh();
     if (d < 0) { Serial.println(F("Leitura do Sonar inválida.")); return; }
     distInitialMm = d;
+    dist0mm = d;
     Serial.print(F("Posição Inicial (IP) definida: ")); Serial.println(distInitialMm);
     if (distFinalMm >= 0) {
       long delta = labs(distFinalMm - distInitialMm);
-      long target = (delta > 10) ? (delta - 10) : 1;
+      long target = (delta > (long)TARGET_OFFSET_MM) ? (delta - (long)TARGET_OFFSET_MM) : 1;
       d_target_mm = (float)target;
       Serial.print(F("Distância alvo (mm): ")); Serial.println(d_target_mm, 0);
     }
     return;
   }
   if (cmd[0] == 'f' && cmd[1] == 'p') {
-    updateSonarFiltered();
-    long d = (distNowMm >= 0) ? distNowMm : lastValidDistMm;
+    long d = readSonarMmFresh();
     if (d < 0) { Serial.println(F("Leitura do Sonar inválida.")); return; }
     distFinalMm = d;
+    if (distInitialMm >= 0) dist0mm = distInitialMm;
     Serial.print(F("Posição Final (FP) definida: ")); Serial.println(distFinalMm);
     if (distInitialMm >= 0) {
       long delta = labs(distFinalMm - distInitialMm);
-      long target = (delta > 10) ? (delta - 10) : 1;
+      long target = (delta > (long)TARGET_OFFSET_MM) ? (delta - (long)TARGET_OFFSET_MM) : 1;
       d_target_mm = (float)target;
       Serial.print(F("Distância alvo (mm): ")); Serial.println(d_target_mm, 0);
     }
@@ -97,19 +104,21 @@ void handleCommand(char *cmd) {
     int ms = atoi(cmd + 1); if (ms <= 0) ms = 250; if (ms > 8000) ms = 8000;
     unsigned int prevDelay = stepDelayMicros;
     stepDelayMicros = STEP_DELAY_LEVELING_US;
+    targetStepDelayMicros = STEP_DELAY_LEVELING_US;
     motorDirUp = true; motorEnable = true;
     unsigned long start = millis();
     while (millis() - start < (unsigned long)ms) updateMotorNonBlocking();
-    motorEnable = false; stepDelayMicros = prevDelay; return;
+    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; return;
   }
   if (c == 'j') {
     int ms = atoi(cmd + 1); if (ms <= 0) ms = 250; if (ms > 8000) ms = 8000;
     unsigned int prevDelay = stepDelayMicros;
     stepDelayMicros = STEP_DELAY_LEVELING_US;
+    targetStepDelayMicros = STEP_DELAY_LEVELING_US;
     motorDirUp = false; motorEnable = true;
     unsigned long start = millis();
     while (millis() - start < (unsigned long)ms) updateMotorNonBlocking();
-    motorEnable = false; stepDelayMicros = prevDelay; return;
+    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; return;
   }
 }
 
