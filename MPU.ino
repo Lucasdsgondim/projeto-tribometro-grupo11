@@ -22,3 +22,28 @@ float readMPUPitchDegSigned() {
   lastMpuPitchDeg = -ang;
   return lastMpuPitchDeg;
 }
+
+byte readMPUWhoAmI() {
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x75); // WHO_AM_I
+  if (Wire.endTransmission(false) != 0) return 0xFF;
+  if (Wire.requestFrom(MPU_ADDR, (byte)1, (byte)true) != 1) return 0xFF;
+  return Wire.read();
+}
+
+void scanI2CDevices() {
+  byte count = 0;
+  Serial.println(F("I2C scan:"));
+  for (byte addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    byte err = Wire.endTransmission();
+    if (err == 0) {
+      Serial.print(F("  0x"));
+      if (addr < 16) Serial.print('0');
+      Serial.print(addr, HEX);
+      Serial.println();
+      count++;
+    }
+  }
+  if (count == 0) Serial.println(F("  nenhum dispositivo encontrado"));
+}

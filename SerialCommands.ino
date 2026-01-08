@@ -5,7 +5,10 @@ extern const float TARGET_OFFSET_MM;
 
 long readSonarMmFresh();
 
-void printHelp() { Serial.println(F("\nComandos: h r z s x p u <ms> j <ms> ip fp | m <g> lbc <val> lbt <val>")); }
+byte readMPUWhoAmI();
+void scanI2CDevices();
+
+void printHelp() { Serial.println(F("\nComandos: h r z s x p u <ms> j <ms> ip fp scan who | m <g> lbc <val> lbt <val>")); }
 
 void printConfig() {
   Serial.print(F("Massa: "));
@@ -31,6 +34,17 @@ void handleCommand(char *cmd) {
 
   if (c == 'h') { printHelp(); return; }
   if (c == 'r') { printConfig(); return; }
+  if (cmd[0] == 's' && cmd[1] == 'c' && cmd[2] == 'a' && cmd[3] == 'n') {
+    scanI2CDevices();
+    return;
+  }
+  if (cmd[0] == 'w' && cmd[1] == 'h' && cmd[2] == 'o') {
+    byte who = readMPUWhoAmI();
+    Serial.print(F("MPU WHO_AM_I: 0x"));
+    if (who < 16) Serial.print('0');
+    Serial.println(who, HEX);
+    return;
+  }
 
   if (cmd[0] == 'i' && cmd[1] == 'p') {
     long d = readSonarMmFresh();
