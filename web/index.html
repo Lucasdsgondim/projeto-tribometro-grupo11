@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tribômetro — Interface Web</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topo">
+    <div>
+      <h1>Tribômetro</h1>
+      <p>Interface local para controle e análise</p>
+    </div>
+    <div class="status" id="status"></div>
+  </header>
+
+  <main class="layout">
+    <section class="col">
+      <section class="card">
+        <h2>1. Conectar</h2>
+        <div class="form-row">
+          <label for="porta">Porta</label>
+          <select id="porta"></select>
+          <button id="btn-atualizar">Atualizar</button>
+        </div>
+        <div class="stack">
+          <button class="primario" id="btn-conectar">Conectar</button>
+          <button id="btn-desconectar">Desconectar</button>
+        </div>
+        <small>Escolha a porta do Arduino e conecte.</small>
+      </section>
+
+      <section class="card">
+        <h2>2. Preparar ensaio</h2>
+        <div class="form-row">
+          <label for="massa">Massa (g)</label>
+          <input id="massa" type="number" step="0.1" />
+          <button id="btn-massa">Enviar m</button>
+        </div>
+        <div class="form-row">
+          <label for="lbc">LBC</label>
+          <input id="lbc" type="number" step="1" />
+          <button id="btn-lbc">Enviar lbc</button>
+        </div>
+        <div class="form-row">
+          <label for="lbt">LBT</label>
+          <input id="lbt" type="number" step="1" />
+          <button id="btn-lbt">Enviar lbt</button>
+        </div>
+        <div class="stack">
+          <button data-cmd="ip">Definir posição inicial</button>
+          <button data-cmd="fp">Definir posição final</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>3. Executar</h2>
+        <div class="stack">
+          <button data-cmd="z">Nivelar</button>
+          <button class="primario" data-cmd="s">Iniciar</button>
+          <button data-cmd="r">Configuração</button>
+          <button class="alerta" data-cmd="x">Abortar</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Resultados</h2>
+        <div class="form-row">
+          <label for="g-offset">Gráficos</label>
+          <input id="g-offset" type="number" value="0" min="0" step="1" />
+          <button id="btn-g">Gerar</button>
+        </div>
+        <div class="stack">
+          <button class="primario" id="btn-analise">Rodar análise completa</button>
+        </div>
+        <small>Saídas em <code>graficos_ensaio/</code> e <code>saida_analise/</code>.</small>
+      </section>
+
+      <section class="card">
+        <h2>Modo Debug</h2>
+        <label class="linha">
+          <input type="checkbox" id="modo-dev" />
+          Mostrar comandos de diagnóstico
+        </label>
+        <div id="dev-area" class="dev-area oculto">
+          <div class="stack">
+            <button data-cmd="scan">Scan I2C</button>
+            <button data-cmd="who">WHO_AM_I</button>
+          </div>
+          <div class="form-row">
+            <label for="up-ms">Subir (ms)</label>
+            <input id="up-ms" type="number" step="50" />
+            <button id="btn-u">Mover</button>
+          </div>
+          <div class="form-row">
+            <label for="down-ms">Descer (ms)</label>
+            <input id="down-ms" type="number" step="50" />
+            <button id="btn-j">Mover</button>
+          </div>
+        </div>
+      </section>
+    </section>
+
+    <section class="col">
+      <section class="card log">
+        <h2>Log serial</h2>
+        <pre id="log"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Gráficos</h2>
+        <div class="stack">
+          <button id="btn-atualizar-graficos">Atualizar lista</button>
+        </div>
+        <div class="abas">
+          <button class="aba ativa" data-aba="ensaio">Ensaio (g)</button>
+          <button class="aba" data-aba="analise">Análise</button>
+          <button class="aba" data-aba="resumo">Resumo</button>
+        </div>
+        <div id="lista-graficos"></div>
+        <div id="visualizador">
+          <img id="imagem-grande" alt="Gráfico" />
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Servidor</h2>
+        <div class="stack">
+          <button class="alerta" id="btn-shutdown">Encerrar servidor</button>
+        </div>
+        <small>Encerra o backend local. Para voltar, abra o <code>start_ui</code> novamente.</small>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

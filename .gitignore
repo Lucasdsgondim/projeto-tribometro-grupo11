@@ -1,3 +1,13 @@
 *.csv
 *.txt
+*.xlsx
+*.pdf
+*.log
 /doc
+/venv/
+/__pycache__/
+**/__pycache__/
+/.interface_tribometro_history
+/saida_analise/
+/saida_analise1/
+/graficos_ensaio/
