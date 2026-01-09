@@ -18,7 +18,14 @@ LEGENDAS = {
         'pitch_bruto_deg', 'pitch_filtrado_deg',
         'sonar_bruto_mm', 'sonar_filtrado_mm',
         'dist_ref_mm', 'dist_alvo_mm', 's_abs_mm',
-        'temp_mpu_c', 'Timestamp_PC'
+        'temp_mpu_c', 'Timestamp_PC',
+        'mu_s_media', 'mu_s_std', 'mu_s_count',
+        'mu_d_media', 'mu_d_std', 'mu_d_count',
+        'tempo_media', 'tempo_std',
+        'distancia_media', 'angulo_media',
+        'trabalho_energia_media', 'trabalho_energia_std',
+        'trabalho_atrito_media', 'trabalho_atrito_std',
+        'comparacao_trabalho_delta_J'
     ],
     'Descrição': [
         'Massa do conjunto deslizante (corpo de prova + pesos) em gramas.',
@@ -49,7 +56,22 @@ LEGENDAS = {
         'Distância alvo configurada para o ensaio.',
         'Deslocamento absoluto real percorrido durante o ensaio (mm).',
         'Temperatura interna do sensor MPU6050 (°C).',
-        'Data e hora da coleta dos dados pelo computador.'
+        'Data e hora da coleta dos dados pelo computador.',
+        'Média de mu_s para o grupo (LBT/LBC/massa).',
+        'Desvio padrão de mu_s para o grupo (LBT/LBC/massa).',
+        'Quantidade de amostras válidas de mu_s no grupo.',
+        'Média de mu_d para o grupo (LBT/LBC/massa).',
+        'Desvio padrão de mu_d para o grupo (LBT/LBC/massa).',
+        'Quantidade de amostras válidas de mu_d no grupo.',
+        'Média do tempo de descida para o grupo (s).',
+        'Desvio padrão do tempo de descida para o grupo (s).',
+        'Média do deslocamento absoluto para o grupo (mm).',
+        'Média do ângulo de inclinação para o grupo (graus).',
+        'Média da perda de energia (J) para o grupo.',
+        'Desvio padrão da perda de energia (J) para o grupo.',
+        'Média do trabalho da força de atrito (J) para o grupo.',
+        'Desvio padrão do trabalho da força de atrito (J) para o grupo.',
+        'Comparação (delta) entre trabalho de atrito e perda de energia (J).'
     ]
 }
 
@@ -57,6 +79,21 @@ LEGENDAS = {
 def adicionar_legenda_excel(writer):
     df_legenda = pd.DataFrame(LEGENDAS)
     df_legenda.to_excel(writer, sheet_name='legenda', index=False)
+
+
+def ajustar_largura_colunas(writer, sheet_name, df, padding=2, max_width=50):
+    try:
+        from openpyxl.utils import get_column_letter
+    except Exception:
+        return
+    worksheet = writer.sheets.get(sheet_name)
+    if worksheet is None:
+        return
+    for idx, coluna in enumerate(df.columns, start=1):
+        valores = df[coluna].astype(str).tolist()
+        max_len = max([len(str(coluna))] + [len(v) for v in valores]) if valores else len(str(coluna))
+        largura = min(max_len + padding, max_width)
+        worksheet.column_dimensions[get_column_letter(idx)].width = largura
 
 
 def plotar_grafico_atrito(massa_g, angulo_deg, mu_s, mu_d, titulo, titulo_extra, caminho_saida):
@@ -215,9 +252,16 @@ def executar_analise(caminho_csv='resultados_tribometro.csv'):
         tempo_media=('tempo_s', 'mean'),
         tempo_std=('tempo_s', 'std'),
         distancia_media=('s_abs_mm', 'mean'),
-        angulo_media=('angulo_deg', 'mean')
+        angulo_media=('angulo_deg', 'mean'),
+        trabalho_energia_media=('trabalho_energia_J', 'mean'),
+        trabalho_energia_std=('trabalho_energia_J', 'std'),
+        trabalho_atrito_media=('trabalho_atrito_J', 'mean'),
+        trabalho_atrito_std=('trabalho_atrito_J', 'std'),
     ).reset_index()
 
+    resumo['comparacao_trabalho_delta_J'] = (
+        resumo['trabalho_atrito_media'] - resumo['trabalho_energia_media']
+    )
     resumo = resumo.round(4)
 
     output_excel = os.path.join(dir_saida, 'analise_tribometro.xlsx')
@@ -227,6 +271,11 @@ def executar_analise(caminho_csv='resultados_tribometro.csv'):
             df_raw.to_excel(writer, sheet_name='dados_raw', index=False)
             df_limpos.to_excel(writer, sheet_name='dados_limpos', index=False)
             adicionar_legenda_excel(writer)
+            ajustar_largura_colunas(writer, 'resumo', resumo)
+            ajustar_largura_colunas(writer, 'dados_raw', df_raw)
+            ajustar_largura_colunas(writer, 'dados_limpos', df_limpos)
+            df_legenda = pd.DataFrame(LEGENDAS)
+            ajustar_largura_colunas(writer, 'legenda', df_legenda, max_width=80)
         print(f"Arquivo Excel gerado com sucesso: {output_excel}")
     except ImportError:
         print("Biblioteca 'openpyxl' não encontrada. Salvando resumo em CSV.")
@@ -237,23 +286,41 @@ def executar_analise(caminho_csv='resultados_tribometro.csv'):
 
     plt.figure(figsize=(10, 6))
     df_plot_mus = df_limpos.dropna(subset=['mu_s_final'])
-    sns.boxplot(data=df_plot_mus, x='LBT', y='mu_s_final', hue='massa_g', palette="viridis")
+    sns.barplot(
+        data=df_plot_mus,
+        x='LBT',
+        y='mu_s_final',
+        hue='massa_g',
+        palette="viridis",
+        estimator='mean',
+        errorbar='sd',
+        capsize=0.2,
+    )
     plt.title('Atrito Estático (mu_s) por Lixa da Base')
     plt.ylabel('Coeficiente de Atrito Estático (mu_s)')
     plt.xlabel('Lixa Base (LBT)')
     plt.legend(title='Massa (g)', bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
     plt.tight_layout()
-    plt.savefig(os.path.join(dir_graficos, 'grafico_01_boxplot_mu_s.png'), dpi=300)
+    plt.savefig(os.path.join(dir_graficos, 'grafico_01_media_mu_s.png'), dpi=300)
     plt.close()
 
     plt.figure(figsize=(10, 6))
-    sns.boxplot(data=df_limpos, x='LBT', y='mu_d_final', hue='massa_g', palette="viridis")
+    sns.barplot(
+        data=df_limpos,
+        x='LBT',
+        y='mu_d_final',
+        hue='massa_g',
+        palette="viridis",
+        estimator='mean',
+        errorbar='sd',
+        capsize=0.2,
+    )
     plt.title('Atrito Dinâmico (mu_d) por Lixa da Base')
     plt.ylabel('Coeficiente de Atrito Dinâmico (mu_d)')
     plt.xlabel('Lixa Base (LBT)')
     plt.legend(title='Massa (g)', bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
     plt.tight_layout()
-    plt.savefig(os.path.join(dir_graficos, 'grafico_02_boxplot_mu_d.png'), dpi=300)
+    plt.savefig(os.path.join(dir_graficos, 'grafico_02_media_mu_d.png'), dpi=300)
     plt.close()
 
     plt.figure(figsize=(10, 6))
@@ -267,14 +334,51 @@ def executar_analise(caminho_csv='resultados_tribometro.csv'):
     plt.close()
 
     plt.figure(figsize=(10, 6))
-    sns.lineplot(data=df_limpos, x='massa_g', y='tempo_s', hue='LBT', style='LBC', markers=True, dashes=False, palette="deep", linewidth=2.5)
-    plt.title('Tempo de Ensaio vs Massa')
-    plt.ylabel('Tempo (s)')
+    df_trabalho = df_limpos.dropna(subset=['trabalho_energia_J', 'trabalho_atrito_J']).copy()
+    df_trabalho['delta_trabalho_J'] = df_trabalho['trabalho_atrito_J'] - df_trabalho['trabalho_energia_J']
+    sns.scatterplot(
+        data=df_trabalho,
+        x='massa_g',
+        y='delta_trabalho_J',
+        hue='LBT',
+        style='LBC',
+        s=150,
+        palette="deep",
+    )
+    plt.axhline(0.0, linestyle='--', color='#555555', linewidth=1)
+    plt.title('Delta: Trabalho de Atrito − Perda de Energia')
     plt.xlabel('Massa (g)')
+    plt.ylabel('Delta de trabalho (J)')
     plt.legend(title='LBT / LBC', bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0)
     plt.tight_layout()
-    plt.savefig(os.path.join(dir_graficos, 'grafico_04_tempo_massa.png'), dpi=300)
+    plt.savefig(os.path.join(dir_graficos, 'grafico_04_delta_trabalho.png'), dpi=300)
     plt.close()
+
+    for massa_val in sorted(resumo['massa_g'].unique()):
+        df_massa = resumo[resumo['massa_g'] == massa_val]
+        if df_massa.empty:
+            continue
+        tabela = df_massa.pivot(index='LBT', columns='LBC', values='comparacao_trabalho_delta_J')
+        if tabela.empty:
+            continue
+        plt.figure(figsize=(10, 6))
+        sns.heatmap(
+            tabela,
+            annot=True,
+            fmt=".3f",
+            cmap="vlag",
+            center=0.0,
+            linewidths=0.4,
+            linecolor="#e6e6e6",
+            cbar_kws={"label": "Delta trabalho (J)"},
+        )
+        plt.title(f'Delta trabalho (atr - energia) | m={massa_val:.1f} g')
+        plt.xlabel('LBC')
+        plt.ylabel('LBT')
+        plt.tight_layout()
+        massa_tag = f"{massa_val:.1f}".replace('.', 'p')
+        plt.savefig(os.path.join(dir_graficos, f"grafico_05_heatmap_delta_m{massa_tag}.png"), dpi=300)
+        plt.close()
 
     print(f"Gráficos salvos em: {dir_graficos}")
 
