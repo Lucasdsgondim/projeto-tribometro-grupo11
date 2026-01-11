@@ -17,7 +17,6 @@ const float G = 9.80665f;
 const unsigned long SENSOR_PERIOD_MS = 50;
 float filterAlpha = 0.90f;
 
-// Globals defined in other .ino files (declared here due to Arduino concat order).
 extern bool sonarOk;
 extern bool sonarStale;
 extern unsigned long sonarAgeMs;
