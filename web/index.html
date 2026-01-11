@@ -3,137 +3,551 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tribômetro — Interface Web</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>Tribômetro — Painel de Controle</title>
+
+  <style>
+    :root {
+      /* Paleta de Cores*/
+
+      --bg-app: #f0f2f5;
+      --bg-card: #ffffff;
+      --text-main: #1a1a1a;
+      --text-muted: #64748b;
+
+      /* Ações e Destaques */
+      --primary: #0f172a;
+      --primary-hover: #1e293b;
+
+
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+      --success: #16a34a;
+      --warning: #f59e0b;
+
+      /* Componentes */
+      --border: #e2e8f0;
+      --input-bg: #f8fafc;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text-main);
+      background-color: var(--bg-app);
+      line-height: 1.5;
+      font-size: 15px;
+      overflow-x: hidden;
+    }
+
+    /* --- Cabeçalho --- */
+    .topo {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: var(--shadow-sm);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      flex-wrap: wrap; /* Permite quebrar linha em telas muito pequenas */
+      gap: 16px;
+    }
+
+    /* Container para Logo + Título */
+    .logo-container {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo-img {
+      height: 48px;
+      width: auto;
+      object-fit: contain;
+      border-radius: 4px;
+    }
+
+    .titulo-container h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -0.5px;
+      line-height: 1.2;
+    }
+
+    .titulo-container p {
+      margin: 2px 0 0;
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.2;
+    }
+
+    /* --- Status Badge --- */
+    .status {
+      padding: 6px 16px;
+      border-radius: 99px;
+      font-weight: 600;
+      font-size: 14px;
+      background: #e2e8f0;
+      color: var(--text-muted);
+      transition: all 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+    }
+    .status::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+      background: currentColor;
+    }
+    .status.ok { background: #dcfce7; color: var(--success); }
+    .status.erro { background: #fee2e2; color: var(--danger); }
+
+    /* --- Layout Principal --- */
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(300px, 400px) 1fr;
+      gap: 24px;
+      padding: 24px;
+      max-width: 100%;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .col {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      min-width: 0;
+    }
+
+    /* --- Cards --- */
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+      border: 1px solid var(--border);
+      transition: box-shadow 0.2s;
+      overflow: hidden; /* Mantém conteúdo dentro do card */
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    h2 {
+      margin: 0 0 16px 0;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      font-weight: 700;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* --- Formulários e Controles --- */
+    .form-row {
+      display: grid;
+      grid-template-columns: 90px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-weight: 500;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    input, select {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      font-family: inherit;
+      font-size: 14px;
+      width: 100%;
+      transition: all 0.2s;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(var(--primary), 0.2); /* Sutil */
+    }
+
+    /* --- Botões --- */
+    button {
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      background: #e2e8f0;
+      color: var(--text-main);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    button:hover { background: #cbd5e1; transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+
+    button.primario {
+      background: var(--primary);
+      color: white;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    button.primario:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+
+    button.alerta {
+      background: var(--danger);
+      color: white;
+    }
+    button.alerta:hover { background: var(--danger-hover); }
+
+    .stack {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    small {
+      display: block;
+      margin-top: 10px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-style: italic;
+    }
+
+    /* --- Terminal / Log --- */
+    .card.log {
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+      min-height: 400px;
+    }
+
+    pre {
+      background: #0f172a; /* Fundo do log ajustado */
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      padding: 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      height: 350px;
+      overflow-y: auto;
+      border: 1px solid #334155;
+      margin: 0;
+      flex-grow: 1;
+
+      /* PROTEÇÃO: Quebra de linha forçada para evitar overflow */
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      word-break: break-all;
+    }
+
+    pre::-webkit-scrollbar { width: 8px; }
+    pre::-webkit-scrollbar-track { background: #0f172a; }
+    pre::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+    /* --- Gráficos e Abas --- */
+    .abas {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid var(--border);
+      padding-bottom: 2px;
+      flex-wrap: wrap; /* Proteção para telas pequenas */
+    }
+
+    .aba {
+      background: transparent;
+      color: var(--text-muted);
+      border-radius: 6px 6px 0 0;
+      padding: 8px 16px;
+    }
+
+    .aba:hover {
+      background: #f1f5f9;
+      color: var(--primary);
+    }
+
+    .aba.ativa {
+      background: var(--bg-app);
+      color: var(--primary);
+      font-weight: 700;
+      border-bottom: 2px solid var(--primary);
+      margin-bottom: -4px;
+      z-index: 1;
+    }
+
+    #lista-graficos {
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px;
+      max-height: 200px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+
+    .arquivo {
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      font-size: 13px;
+      color: #333;
+
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .arquivo:hover { background: #e2e8f0; border-radius: 4px; }
+
+    #visualizador {
+      min-height: 300px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f8fafc;
+      border-radius: 6px;
+      border: 2px dashed #cbd5e1;
+      padding: 10px;
+    }
+
+    #imagem-grande {
+      max-width: 100%; /* Garante que a imagem caiba no card */
+      height: auto;
+      border-radius: 6px;
+      display: none;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    /* --- Modo Dev --- */
+    .linha {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 14px;
+    }
+    .dev-area {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px dashed var(--warning);
+      background: #fffbeb;
+      border-radius: 6px;
+    }
+    .oculto { display: none; }
+
+    /* --- Responsividade --- */
+    @media (max-width: 900px) {
+      .layout {
+        grid-template-columns: 1fr; /
+      }
+      .topo {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .logo-container {
+        width: 100%;
+      }
+      .status {
+        align-self: flex-start;
+        margin-top: 10px;
+      }
+      #visualizador {
+        min-height: 200px;
+      }
+    }
+  </style>
 </head>
 <body>
+  <!-- Topo -->
   <header class="topo">
-    <div>
-      <h1>Tribômetro</h1>
-      <p>Interface local para controle e análise</p>
+    <div class="logo-container">
+      <img src="Trib.png" alt="Logo Tribômetro" class="logo-img" onerror="this.style.display='none'" />
+      <div class="titulo-container">
+        <h1>Tribômetro</h1>
+        <p>Interface de Controle e Aquisição de Dados</p>
+      </div>
     </div>
-    <div class="status" id="status"></div>
+    <div class="status" id="status">Desconectado</div>
   </header>
 
   <main class="layout">
     <section class="col">
+
+      <!-- Passo 1: Conexão -->
       <section class="card">
-        <h2>1. Conectar</h2>
+        <h2>1. Conexão Serial</h2>
         <div class="form-row">
           <label for="porta">Porta</label>
-          <select id="porta"></select>
-          <button id="btn-atualizar">Atualizar</button>
+          <select id="porta"><option disabled>Buscando...</option></select>
+          <button id="btn-atualizar" title="Recarregar portas">↻</button>
         </div>
         <div class="stack">
           <button class="primario" id="btn-conectar">Conectar</button>
           <button id="btn-desconectar">Desconectar</button>
         </div>
-        <small>Escolha a porta do Arduino e conecte.</small>
       </section>
 
+      <!-- Passo 2: Parâmetros -->
       <section class="card">
-        <h2>2. Preparar ensaio</h2>
+        <h2>2. Configuração do Ensaio</h2>
         <div class="form-row">
           <label for="massa">Massa (g)</label>
-          <input id="massa" type="number" step="0.1" />
-          <button id="btn-massa">Enviar m</button>
+          <input id="massa" type="number" step="0.1" placeholder="0.0" />
+          <button id="btn-massa">Set</button>
         </div>
         <div class="form-row">
           <label for="lbc">LBC</label>
-          <input id="lbc" type="number" step="1" />
-          <button id="btn-lbc">Enviar lbc</button>
+          <input id="lbc" type="number" step="1" placeholder="0" />
+          <button id="btn-lbc">Set</button>
         </div>
         <div class="form-row">
           <label for="lbt">LBT</label>
-          <input id="lbt" type="number" step="1" />
-          <button id="btn-lbt">Enviar lbt</button>
+          <input id="lbt" type="number" step="1" placeholder="0" />
+          <button id="btn-lbt">Set</button>
         </div>
-        <div class="stack">
-          <button data-cmd="ip">Definir posição inicial</button>
-          <button data-cmd="fp">Definir posição final</button>
+
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border);">
+          <label style="font-size: 12px; display:block; margin-bottom: 8px; font-weight: 700; color: var(--primary);">CALIBRAÇÃO DE POSIÇÃO</label>
+          <div class="stack">
+            <button data-cmd="ip">Definir Início</button>
+            <button data-cmd="fp">Definir Final</button>
+          </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2>3. Executar</h2>
-        <div class="stack">
+      <!-- Passo 3: Execução -->
+      <section class="card" style="border-left: 4px solid var(--primary);">
+        <h2 style="color: var(--primary);">3. Controle de Execução</h2>
+        <div class="stack" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           <button data-cmd="z">Nivelar</button>
-          <button class="primario" data-cmd="s">Iniciar</button>
-          <button data-cmd="r">Configuração</button>
-          <button class="alerta" data-cmd="x">Abortar</button>
+          <button data-cmd="r">Status</button>
+          <button class="primario" data-cmd="s" style="grid-column: span 2; padding: 14px; font-size: 16px;">
+            INICIAR ENSAIO
+          </button>
+          <button class="alerta" data-cmd="x" style="grid-column: span 2;">
+            PARADA DE EMERGÊNCIA
+          </button>
         </div>
       </section>
 
+      <!-- Processamento -->
       <section class="card">
-        <h2>Resultados</h2>
+        <h2>Pós-Processamento</h2>
         <div class="form-row">
-          <label for="g-offset">Gráficos</label>
+          <label for="g-offset">Offset</label>
           <input id="g-offset" type="number" value="0" min="0" step="1" />
-          <button id="btn-g">Gerar</button>
+          <button id="btn-g">Gerar Gráficos</button>
         </div>
         <div class="stack">
-          <button class="primario" id="btn-analise">Rodar análise completa</button>
+          <button class="primario" id="btn-analise" style="width: 100%">Rodar Análise Completa</button>
         </div>
-        <small>Saídas em <code>graficos_ensaio/</code> e <code>saida_analise/</code>.</small>
+        <small>Arquivos salvos em <code>graficos_ensaio/</code></small>
       </section>
 
+      <!-- Área Técnica -->
       <section class="card">
-        <h2>Modo Debug</h2>
+        <h2>Área Técnica</h2>
         <label class="linha">
           <input type="checkbox" id="modo-dev" />
-          Mostrar comandos de diagnóstico
+          <span>Habilitar Modo Debug / Manual</span>
         </label>
+
         <div id="dev-area" class="dev-area oculto">
           <div class="stack">
-            <button data-cmd="scan">Scan I2C</button>
+            <button data-cmd="scan">I2C Scan</button>
             <button data-cmd="who">WHO_AM_I</button>
           </div>
+          <hr style="border: 0; border-top: 1px dashed #ccc; margin: 10px 0;">
           <div class="form-row">
-            <label for="up-ms">Subir (ms)</label>
-            <input id="up-ms" type="number" step="50" />
+            <label>Subir</label>
+            <input id="up-ms" type="number" step="50" placeholder="ms" />
             <button id="btn-u">Mover</button>
           </div>
           <div class="form-row">
-            <label for="down-ms">Descer (ms)</label>
-            <input id="down-ms" type="number" step="50" />
+            <label>Descer</label>
+            <input id="down-ms" type="number" step="50" placeholder="ms" />
             <button id="btn-j">Mover</button>
           </div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <button class="alerta" id="btn-shutdown" style="width: 100%">Desligar Servidor Local</button>
         </div>
       </section>
     </section>
 
+    <!-- Coluna da Direita: Visualização -->
     <section class="col">
+      <!-- Terminal -->
       <section class="card log">
-        <h2>Log serial</h2>
-        <pre id="log"></pre>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h2>Monitor Serial</h2>
+            <span style="font-size: 12px; color: var(--text-muted);">Respostas do controlador em tempo real</span>
+        </div>
+        <pre id="log">Aguardando conexão...</pre>
       </section>
 
+      <!-- Visualizador -->
       <section class="card">
-        <h2>Gráficos</h2>
-        <div class="stack">
-          <button id="btn-atualizar-graficos">Atualizar lista</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+             <h2>Visualização de Dados</h2>
+             <button id="btn-atualizar-graficos" style="font-size: 12px; padding: 4px 8px;">↻ Atualizar</button>
         </div>
+
         <div class="abas">
-          <button class="aba ativa" data-aba="ensaio">Ensaio (g)</button>
+          <button class="aba ativa" data-aba="ensaio">Ensaio Bruto</button>
           <button class="aba" data-aba="analise">Análise</button>
           <button class="aba" data-aba="resumo">Resumo</button>
         </div>
-        <div id="lista-graficos"></div>
-        <div id="visualizador">
-          <img id="imagem-grande" alt="Gráfico" />
-        </div>
-      </section>
 
-      <section class="card">
-        <h2>Servidor</h2>
-        <div class="stack">
-          <button class="alerta" id="btn-shutdown">Encerrar servidor</button>
+        <div id="lista-graficos"></div>
+
+        <div id="visualizador">
+          <img id="imagem-grande" alt="Selecione um gráfico na lista acima" />
+          <p style="text-align: center; color: var(--text-muted); display: none;" id="img-placeholder">
+            Nenhuma imagem selecionada
+          </p>
         </div>
-        <small>Encerra o backend local. Para voltar, abra o <code>start_ui</code> novamente.</small>
       </section>
     </section>
   </main>
 
+  <!-- Script que carrega a lógica do app -->
   <script src="app.js"></script>
 </body>
 </html>
