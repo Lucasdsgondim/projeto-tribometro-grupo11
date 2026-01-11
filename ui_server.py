@@ -242,92 +242,43 @@ def gerar_grafico_ensaio(deslocamento=0):
     if mu_s is None and mu_d is None:
         return False, "mu_s e mu_d inválidos no ensaio."
 
-    gravidade = 9.80665
-    angulo_rad = math.radians(angulo_deg)
-    massa_kg = massa_g / 1000.0
-    forca_normal = massa_kg * gravidade * math.cos(angulo_rad)
-    forca_atrito_estatico_max = mu_s * forca_normal if mu_s is not None else None
-    forca_atrito_dinamico = mu_d * forca_normal if mu_d is not None else None
-
-    if forca_atrito_estatico_max is None:
-        forca_atrito_estatico_max = forca_atrito_dinamico
-    if forca_atrito_dinamico is None:
-        forca_atrito_dinamico = forca_atrito_estatico_max
-    if forca_atrito_estatico_max is None or forca_atrito_dinamico is None:
-        return False, "Não foi possível calcular forças de atrito."
-
-    forca_fim = max(forca_atrito_estatico_max, forca_atrito_dinamico) * 1.6
-    if forca_fim <= 0:
-        return False, "Forças inválidas para plotagem."
-
-    x_estatico = [0.0, forca_atrito_estatico_max]
-    y_estatico = [0.0, forca_atrito_estatico_max]
-    x_dinamico = [forca_atrito_estatico_max, forca_fim]
-    y_dinamico = [forca_atrito_dinamico, forca_atrito_dinamico]
+    theta_max = max(35.0, angulo_deg * 1.2)
+    angulos = [i * theta_max / 200.0 for i in range(201)]
+    tan_thetas = [math.tan(math.radians(a)) for a in angulos]
 
     plt.figure(figsize=(8, 4.6))
-    eixos = plt.gca()
-    plt.plot(x_estatico, y_estatico, color="#c0392b", linewidth=3)
-    plt.plot([forca_atrito_estatico_max, forca_atrito_estatico_max], [forca_atrito_estatico_max, forca_atrito_dinamico], color="#c0392b", linewidth=3)
-    plt.plot(x_dinamico, y_dinamico, color="#c0392b", linewidth=3)
-    plt.axvline(forca_atrito_estatico_max, color="#555555", linestyle="--", linewidth=1)
-    plt.axhline(forca_atrito_estatico_max, color="#888888", linestyle="--", linewidth=1)
-    plt.axhline(forca_atrito_dinamico, color="#888888", linestyle="--", linewidth=1)
-
-    y_max = max(forca_atrito_estatico_max, forca_atrito_dinamico) * 1.15
-    x_rotulo = forca_fim * 0.02
-    delta_forcas = abs(forca_atrito_estatico_max - forca_atrito_dinamico)
-    min_gap = y_max * 0.06
-    ajuste = max(0.0, (min_gap - delta_forcas) / 2.0)
-    y_estatico = forca_atrito_estatico_max + ajuste
-    y_dinamico = forca_atrito_dinamico - ajuste
-    bbox = dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.85)
+    plt.plot(tan_thetas, tan_thetas, color="#2c3e50", linewidth=2.5, label="tan(θ)")
+    if mu_s is not None:
+        plt.axhline(mu_s, color="#c0392b", linewidth=2.2, label=f"μ_s = {mu_s:.3f}")
+    if mu_d is not None:
+        plt.axhline(mu_d, color="#e67e22", linewidth=2.2, label=f"μ_d = {mu_d:.3f}")
+    tan_theta_ensaio = math.tan(math.radians(angulo_deg))
+    plt.axvline(tan_theta_ensaio, color="#555555", linestyle="--", linewidth=1)
     plt.text(
-        x_rotulo,
-        y_estatico,
-        f"Fat estático — {forca_atrito_estatico_max:.3f} N",
+        tan_theta_ensaio * 1.02,
+        max(tan_thetas) * 0.05,
+        f"tan(θ)={tan_theta_ensaio:.3f}\nθ={angulo_deg:.2f}°",
         fontsize=10,
-        va="center",
-        ha="left",
-        bbox=bbox,
-    )
-    plt.text(
-        x_rotulo,
-        y_dinamico,
-        f"Fat dinâmico — {forca_atrito_dinamico:.3f} N",
-        fontsize=10,
-        va="center",
-        ha="left",
-        bbox=bbox,
     )
 
-    plt.xlabel("Força aplicada (N)")
-    plt.ylabel("Força de atrito (N)")
+    plt.xlabel("tan(θ) do plano inclinado (–)")
+    plt.ylabel("Coeficiente de atrito (–)")
     lbc_valor = dados.get("LBC")
     lbt_valor = dados.get("LBT")
     massa_str = f"{massa_g:.1f} g" if massa_g is not None else "?"
     titulo_extra = f"LBC={lbc_valor} | LBT={lbt_valor} | m={massa_str}"
-    plt.title(f"Atrito estático e dinâmico do ensaio\n{titulo_extra}")
-    plt.xlim(0, forca_fim * 1.05)
-    plt.ylim(0, y_max)
+    plt.title(f"Coeficientes vs tan(θ) do ensaio\n{titulo_extra}")
+    limites = [max(tan_thetas)]
+    if mu_s is not None:
+        limites.append(mu_s)
+    if mu_d is not None:
+        limites.append(mu_d)
+    limite_max = max(limites)
+    plt.xlim(0, max(tan_thetas) * 1.05)
+    plt.ylim(0, limite_max * 1.15)
+    plt.legend(frameon=False)
 
     plt.tight_layout()
-    figura = plt.gcf()
-    figura.canvas.draw()
-    ponto1 = eixos.transData.transform((0.0, 0.0))
-    ponto2 = eixos.transData.transform((forca_atrito_estatico_max, forca_atrito_estatico_max))
-    angulo_rampa = math.degrees(math.atan2(ponto2[1] - ponto1[1], ponto2[0] - ponto1[0]))
-    plt.text(
-        forca_atrito_estatico_max * 0.55,
-        forca_atrito_estatico_max * 0.6,
-        "Repouso",
-        rotation=angulo_rampa,
-        rotation_mode="anchor",
-        ha="center",
-        va="center",
-        fontsize=11,
-    )
-    plt.text(forca_atrito_estatico_max * 1.08, forca_atrito_dinamico * 1.03, "Movimento", fontsize=11)
 
     DIR_GRAFICOS_ENSAIO.mkdir(parents=True, exist_ok=True)
     carimbo_tempo_pc = dados.get("carimbo_tempo_pc")
