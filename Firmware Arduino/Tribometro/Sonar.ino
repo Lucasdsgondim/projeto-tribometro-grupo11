@@ -101,10 +101,3 @@ void updateSonarFiltered() {
     }
   }
 }
-
-long displacementMmAbs(long d0, long dNow) {
-  if (d0 < 0 || dNow < 0) return 0;
-  long delta = dNow - d0;
-  if (delta < 0) delta = -delta;
-  return delta;
-}

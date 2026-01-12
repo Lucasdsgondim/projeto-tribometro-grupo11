@@ -21,8 +21,6 @@ void printConfig() {
   if (distInitialMm >= 0 && distFinalMm >= 0) {
     Serial.print(F(" | Dist Alvo=")); Serial.print(d_target_mm, 0);
   }
-
-  Serial.print(F(" | Off=")); Serial.print(levelOffsetDeg, 2);
   Serial.println();
 }
 
@@ -85,9 +83,11 @@ void handleCommand(char *cmd) {
   if (c == 'z') {
     levelStartMs = millis();
     pitchFiltDeg = readMPUPitchDegSigned();
-    levelRefDeg = LEVEL_TARGET_DEG;
+    levelRefDeg = 0.0f;
+    lastLevelPitchDeg = pitchFiltDeg;
+    lastLevelMs = levelStartMs;
     state = LEVELING;
-    filterAlpha = 0.60f;
+    filterAlpha = 0.80f;
     Serial.println(F("Iniciando nivelamento..."));
     return;
   }
@@ -116,22 +116,28 @@ void handleCommand(char *cmd) {
   if (c == 'u') {
     int ms = atoi(cmd + 1); if (ms <= 0) ms = 250; if (ms > 8000) ms = 8000;
     unsigned int prevDelay = stepDelayMicros;
-    stepDelayMicros = STEP_DELAY_LEVELING_US;
-    targetStepDelayMicros = STEP_DELAY_LEVELING_US;
+    bool prevFull = motorFullStepMode;
+    stepDelayMicros = STEP_DELAY_MANUAL_US;
+    targetStepDelayMicros = STEP_DELAY_MANUAL_US;
+    motorFullStepMode = true;
+    stepIndex |= 0x01; // garante passo de duas bobinas
     motorDirUp = true; motorEnable = true;
     unsigned long start = millis();
     while (millis() - start < (unsigned long)ms) updateMotorNonBlocking();
-    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; return;
+    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; motorFullStepMode = prevFull; return;
   }
   if (c == 'j') {
     int ms = atoi(cmd + 1); if (ms <= 0) ms = 250; if (ms > 8000) ms = 8000;
     unsigned int prevDelay = stepDelayMicros;
-    stepDelayMicros = STEP_DELAY_LEVELING_US;
-    targetStepDelayMicros = STEP_DELAY_LEVELING_US;
+    bool prevFull = motorFullStepMode;
+    stepDelayMicros = STEP_DELAY_MANUAL_US;
+    targetStepDelayMicros = STEP_DELAY_MANUAL_US;
+    motorFullStepMode = true;
+    stepIndex |= 0x01; // garante passo de duas bobinas
     motorDirUp = false; motorEnable = true;
     unsigned long start = millis();
     while (millis() - start < (unsigned long)ms) updateMotorNonBlocking();
-    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; return;
+    motorEnable = false; stepDelayMicros = prevDelay; targetStepDelayMicros = prevDelay; motorFullStepMode = prevFull; return;
   }
 }
 

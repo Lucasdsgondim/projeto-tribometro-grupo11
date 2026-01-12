@@ -7,8 +7,9 @@ void motorOff() { setCoils(0,0,0,0); }
 
 void stepMotorHalfStep(bool dirUp) {
   bool realDir = !dirUp;
-  if (realDir) stepIndex = (stepIndex + 1) & 0x07;
-  else         stepIndex = (stepIndex + 7) & 0x07;
+  if (motorFullStepMode && ((stepIndex & 0x01) == 0)) stepIndex = (stepIndex + 1) & 0x07;
+  if (realDir) stepIndex = (stepIndex + (motorFullStepMode ? 2 : 1)) & 0x07;
+  else         stepIndex = (stepIndex + (motorFullStepMode ? 6 : 7)) & 0x07;
   setCoils(seq[stepIndex][0], seq[stepIndex][1], seq[stepIndex][2], seq[stepIndex][3]);
 }
 

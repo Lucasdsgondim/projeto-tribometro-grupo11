@@ -29,28 +29,25 @@ void updateSonarFiltered();
 void updateMotorNonBlocking();
 void readSerialLine();
 bool calibrateSensors();
-long displacementMmAbs(long d0, long dNow);
 void finishAndPrintResults();
 void printConfig();
 
-const unsigned int STEP_DELAY_LEVELING_US = 900;
-const unsigned int STEP_DELAY_FINE_US = 15000;
-// Velocidades dinamicas para o ensaio:
+const unsigned int STEP_DELAY_FINE_US = 18000;
 const unsigned int STEP_DELAY_MIN_US = 2000; // Rapido (inicio)
 const unsigned int STEP_DELAY_MAX_US = 8000; // Lento (final/inclinado)
 const unsigned int STEP_DELAY_SMOOTH_US_PER_MS = 15;
+const unsigned int STEP_DELAY_MANUAL_US = 2000;
+const unsigned int STEP_DELAY_LEVELING_US = 1000;
 
 unsigned int stepDelayMicros = STEP_DELAY_MIN_US;
 unsigned int targetStepDelayMicros = STEP_DELAY_MIN_US;
 unsigned long lastDelayUpdateMs = 0;
 const bool KEEP_HOLDING_TORQUE = false;
 
-// Calcula delay baseado no ângulo atual para suavizar a subida em altas inclinações
 unsigned int calcStepDelayForAngle(float ang) {
   if (ang < 10.0f) return STEP_DELAY_MIN_US;
   if (ang >= 40.0f) return STEP_DELAY_MAX_US;
-  // Interpolacao linear entre 10 e 40 graus
-  float factor = (ang - 10.0f) / 30.0f; // 0.0 a 1.0
+  float factor = (ang - 10.0f) / 30.0f; 
   return STEP_DELAY_MIN_US + (unsigned int)(factor * (STEP_DELAY_MAX_US - STEP_DELAY_MIN_US));
 }
 
@@ -69,6 +66,7 @@ byte stepIndex = 0;
 unsigned long lastStepMicros = 0;
 bool motorEnable = false;
 bool motorDirUp  = true;
+bool motorFullStepMode = false;
 
 // Sequencia half-step otimizada para 28BYJ-48
 const byte seq[8][4] = {
@@ -101,9 +99,7 @@ float d_target_mm = 0.0f;
 int LBC = 1;
 int LBT = 1;
 
-const float RAMP_RATE_DEG_PER_S = 0.30f;
 const float MAX_ANGLE_DEG       = 45.0f;
-const float ANGLE_TOL_DEG       = 0.25f;
 
 const int  SLIP_THRESHOLD_MM   = 20;
 const int  SLIP_VEL_THRESHOLD_MM_S = 40;
@@ -119,20 +115,25 @@ const unsigned long MOTION_TIMEOUT_MS = 10000;
 const unsigned long MIN_MOTION_SAMPLES = 6;
 const float STABLE_END_FRACTION = 0.7f;
 
-const float LEVEL_TOL_DEG = 0.05f;
-const float LEVEL_TARGET_DEG = 0.0f;
+const float LEVEL_TOL_DEG = 0.025f;
+const float LEVEL_PAUSE_TOL_DEG = 0.20f;
 const unsigned long LEVEL_TIMEOUT_MS = 60000UL;
-// Nivelamento simples: usa somente o erro do MPU.
+const float LEVEL_FINE_ENTER_DEG = 3.0f;
+const float LEVEL_FINE_EXIT_DEG  = 4.5f;
+const float LEVEL_FINE_RATE_MAX_DEG_S = 0.6f;
+const unsigned long LEVEL_VERIFY_MS = 500;
 
 enum State { IDLE, LEVELING, CALIBRATING, RAMPING_TO_SLIP, TRACKING_MOTION, DONE, PAUSED };
 State state = IDLE;
 State resumeState = IDLE;
+bool levelingFineMode = false;
+bool levelVerifyPending = false;
+unsigned long levelVerifyStartMs = 0;
 
 unsigned long lastSensorMs = 0;
 float pitchRawDeg  = 0.0f;
 float pitchFiltDeg = 0.0f;
 float levelRefDeg  = 0.0f;
-float levelOffsetDeg = 0.0f;
 float pitchZeroDeg = 0.0f;
 float thetaDeg     = 0.0f;
 float mpuTempC = 0.0f;
@@ -199,6 +200,8 @@ unsigned long motionSamples = 0;
 bool mpuOk = true;
 bool mpuOkAtSlip = true;
 float lastMpuPitchDeg = 0.0f;
+float lastLevelPitchDeg = 0.0f;
+unsigned long lastLevelMs = 0;
 
 char lineBuf[32];
 byte linePos = 0;
@@ -215,7 +218,7 @@ void setup() {
   Wire.beginTransmission(MPU_ADDR); Wire.write(0x1C); Wire.write(0x00); Wire.endTransmission(true);
 
   pitchFiltDeg = readMPUPitchDegSigned();
-  levelRefDeg = LEVEL_TARGET_DEG + levelOffsetDeg;
+  levelRefDeg = 0.0f;
   pitchZeroDeg = pitchFiltDeg;
   targetStepDelayMicros = stepDelayMicros;
   lastDelayUpdateMs = millis();
@@ -263,19 +266,45 @@ void loop() {
       levelRefDeg = 0.0f;
       float err = pitchFiltDeg - levelRefDeg;
       float absErr = fabsf(err);
+      float rateAbsDegS = 0.0f;
+      unsigned long nowLevelMs = nowMs;
+      unsigned long dtLevelMs = nowLevelMs - lastLevelMs;
+      if (dtLevelMs > 0) {
+        float dPitch = pitchFiltDeg - lastLevelPitchDeg;
+        rateAbsDegS = fabsf(dPitch * (1000.0f / (float)dtLevelMs));
+        lastLevelPitchDeg = pitchFiltDeg;
+        lastLevelMs = nowLevelMs;
+      }
 
-      if (absErr <= LEVEL_TOL_DEG) {
+      if (levelingFineMode && absErr <= LEVEL_PAUSE_TOL_DEG) {
+        if (!levelVerifyPending) {
+          levelVerifyPending = true;
+          levelVerifyStartMs = nowMs;
+        }
         motorEnable = false;
-        state = IDLE;
-        // Auto-tara: define a posição atual como novo Zero absoluto
-        pitchZeroDeg = pitchFiltDeg; 
-        Serial.print(F("Nivelado. Referência Zero: ")); Serial.println(pitchZeroDeg, 3);
+        if (nowMs - levelVerifyStartMs >= LEVEL_VERIFY_MS) {
+          if (absErr <= LEVEL_TOL_DEG) {
+            state = IDLE;
+            levelVerifyPending = false;
+            // Auto-tara: define a posição atual como novo Zero absoluto
+            pitchZeroDeg = pitchFiltDeg; 
+            Serial.print(F("Nivelado. Referência Zero: ")); Serial.println(pitchZeroDeg, 3);
+          } else {
+            levelVerifyPending = false;
+          }
+        }
       } else {
-        // Logica de duas velocidades
-        if (absErr > 2.0f) {
-          targetStepDelayMicros = STEP_DELAY_LEVELING_US; // Rapido
+        levelVerifyPending = false;
+        // Logica de duas velocidades com histerese
+        if (!levelingFineMode && absErr <= LEVEL_FINE_ENTER_DEG) {
+          levelingFineMode = true;
+        } else if (levelingFineMode && (absErr >= LEVEL_FINE_EXIT_DEG || rateAbsDegS > LEVEL_FINE_RATE_MAX_DEG_S)) {
+          levelingFineMode = false;
+        }
+        if (levelingFineMode) {
+          targetStepDelayMicros = STEP_DELAY_FINE_US; // Lento/Preciso
         } else {
-          targetStepDelayMicros = STEP_DELAY_FINE_US;     // Lento/Preciso
+          targetStepDelayMicros = STEP_DELAY_LEVELING_US; // Rapido
         }
         
         motorDirUp = (err >= 0.0f);
