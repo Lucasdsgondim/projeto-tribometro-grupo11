@@ -1,4 +1,3 @@
-// Globals defined in other .ino files (declared here due to Arduino concat order).
 extern bool sonarOk;
 extern bool sonarStale;
 extern unsigned long sonarAgeMs;

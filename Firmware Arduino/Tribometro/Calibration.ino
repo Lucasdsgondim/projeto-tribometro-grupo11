@@ -20,7 +20,7 @@ bool calibrateSensors() {
     sumPitch2 += p * p;
     long d = readSonarMmOnce();
     if (d >= 0) { sumDist += d; sumDist2 += (double)d * (double)d; okDist++; }
-    delay(70); // respeita intervalo do sonar
+    delay(70);
   }
   pitchZeroDeg = sumPitch / N;
   calibPitchSamples = N;
